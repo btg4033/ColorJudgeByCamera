@@ -26,7 +26,6 @@ import org.opencv.videoio.VideoCapture;
 public class CameraColorJudge extends JFrame {
     private JButton connectButton = new JButton("接続");//切断ボタンと
     private CameraPanel cameraPanel;  // カメラ映像用パネル
-    private boolean isCameraConnected = false; // カメラ接続フラグ
     
     // 座標・色情報を表示するラベルフィールド
     private JLabel mouseXLabel = new JLabel("mouseX: 0 ");
@@ -73,28 +72,21 @@ public class CameraColorJudge extends JFrame {
         connectButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent ae) {
-                if (!isCameraConnected) { // カメラが未接続なら接続する
-                    cameraPanel.connectToCamera();
-                    isCameraConnected = true;
-                    connectButton.setText("切断"); // ボタンのテキストを「切断」に変更
-                } else { // すでに接続されている場合は切断する
-                    cameraPanel.disconnectToCamera();
-                    isCameraConnected = false;
-                    connectButton.setText("接続"); // ボタンのテキストを元に戻す
-                    connectButton.setEnabled(true); // 再び押せるようにする
-                }
+            	if (!cameraPanel.getIsCameraConnected()) {
+            		//カメラが未接続の時、接続ボタンを押す
+            	    cameraPanel.connectToCamera();
+            	    connectButton.setText("切断");
+            	} else {
+            		//カメラが接続している時、切断ボタンを押す。
+            	    cameraPanel.disconnectToCamera();
+            	    connectButton.setText("接続");
+            	}
+
             }
         });
 
         setVisible(true);
     }
-//    @Override
-//    public void actionPerformed(ActionEvent ae) {
-//    	//接続ボタンを押したとき。接続ボタンはカメラに接続していない場合のみ押せる。
-//    	if(ae.getSource() == connectButton && isCameraConnected==false) {
-//   
-//    	}
-//    }
     
     public class CameraPanel extends JPanel implements MouseListener, MouseMotionListener  {
         private VideoCapture camera;
@@ -102,7 +94,7 @@ public class CameraColorJudge extends JFrame {
         private int mouseX = 0, mouseY = 0;
         private Color mouseColor = null;//黒の場合Color.BLACK
         private String detectedColor = "不明"; // 判定した色の名前
-        private static boolean isCameraConnected = false; // カメラ接続フラグ
+        private boolean isCameraConnected = false; // カメラ接続フラグ
 
         public CameraPanel() {
             setSize(640, 480); // カメラ映像のサイズを設定
@@ -119,22 +111,26 @@ public class CameraColorJudge extends JFrame {
         
         private void connectToCamera() {
             if (camera != null && camera.isOpened()) {
-            	System.out.println("カメラは既に接続済み。");
-            	return;  // すでに接続済みなら何もしない
+                System.out.println("カメラは既に接続済み。");
+                return;  // すでに接続済みなら何もしない
             }
-            
-            camera = new VideoCapture(1); // USBカメラに接続（適宜カメラ名やIDを変更）
-            isCameraConnected = true;
-            
-            addMouseListener(this);
-            addMouseMotionListener(this);
 
+            camera = new VideoCapture(1); // USBカメラに接続（適宜カメラIDを変更）
+            isCameraConnected = true;     // 接続フラグを立てる
+            System.out.println("カメラ接続しました。");
+            // マウスリスナーが重複しないようにチェックして追加
+            if (getMouseListeners().length == 0) {
+                addMouseListener(this);
+                addMouseMotionListener(this);
+            }
+
+            // カメラスレッド起動
             new Thread(() -> {
                 Mat frame = new Mat();
 
                 while (isCameraConnected) {
                     if (!camera.read(frame)) {
-                        System.out.println("isCameraConnected："+isCameraConnected);
+                        System.out.println("isCameraConnected：" + isCameraConnected);
                         System.out.println("⚠ フレームが取得できませんでした！");
                         continue;
                     }
@@ -142,12 +138,10 @@ public class CameraColorJudge extends JFrame {
                     if (frame.empty()) {
                         System.out.println("⚠ 空のフレームを取得しました！");
                         continue;
-                    } else {
-//                        System.out.println("✅ フレーム取得成功！サイズ: " + frame.width() + "x" + frame.height());
                     }
 
-                    Imgproc.cvtColor(frame, frame, Imgproc.COLOR_BGR2RGB); // 先にBGR → RGB に変換
-                    Imgproc.resize(frame, frame, new Size(640, 480)); // 変換後にリサイズ
+                    Imgproc.cvtColor(frame, frame, Imgproc.COLOR_BGR2RGB);
+                    Imgproc.resize(frame, frame, new Size(640, 480));
                     image = matToBufferedImage(frame);
                     repaint();
 
@@ -158,10 +152,11 @@ public class CameraColorJudge extends JFrame {
                     }
                 }
             }).start();
-            
-            // カメラ接続後にマウス動作によらない周期的な色判定スレッドを開始
+
+            // 周期的な色判定スレッドも起動
             startPeriodicColorCheck();
         }
+
         
         //カメラ接続後、周期的に色の判定
         private void startPeriodicColorCheck() {
@@ -191,25 +186,19 @@ public class CameraColorJudge extends JFrame {
                 }
             }).start();
         }
+//        isCameraConnected フラグは CameraPanel（カメラの映像や接続状態を管理しているクラス）
+//        の内部でのみ使われており、接続や切断の制御もすべて CameraPanel にある。
+//         ・CameraColorJudge（親クラス）はUI全体を管理。
+//         ・CameraPanel（内部クラス）はカメラ操作を管理。
+//        「カメラが接続されているか？」という情報は CameraPanelの責任。
+//         CameraColorJudge側がameraPanel内のisCameraConnected フラグを見に来るべき。
 
-        
-
-//        @Override
-//        protected void paintComponent(Graphics g) {
-//            super.paintComponent(g);
-//            if (image != null) {
-//                g.drawImage(image, 0, 0, this);
-//            }
-//
-//            g.setColor(mouseColor);
-//            g.fillOval(mouseX - 10, mouseY - 10, 20, 20);
-//
-//            // 判定した色の情報を画面上に描画
-//            Color textColor = (mouseColor.getRed() + mouseColor.getGreen() + mouseColor.getBlue() > 400) ? Color.BLACK : Color.WHITE;
-//            g.setColor(textColor);
-//            g.drawString("X: " + mouseX + " Y: " + mouseY, 20, 20);
-//            g.drawString("Color: " + mouseColor, 20, 40);
-//            g.drawString("判定結果: " + detectedColor, mouseX + 15, mouseY - 15); // マウスのすぐ横に表示
+        public boolean getIsCameraConnected() {
+            return isCameraConnected;
+        }
+        public void setIsCameraConnected(boolean connected) {
+            this.isCameraConnected = connected;
+        }
 //        }
         @Override
         protected void paintComponent(Graphics g) {
